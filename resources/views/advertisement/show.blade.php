@@ -38,9 +38,16 @@
                         {{ $ad->user ? $ad->user->name : 'Unknown' }}
                     </p>
 
-                    <p class="text-gray-700"><span class="font-semibold">ID:</span> {{ $ad->id }}</p>
+                    <!-- <p class="text-gray-700"><span class="font-semibold">ID:</span> {{ $ad->id }}</p> -->
                     <p class="text-gray-700"><span class="font-semibold">Category:</span> {{ $ad->category->title }}</p>
                     <p class="text-gray-700"><span class="font-semibold">Price:</span> {{ $ad->price }} &euro;</p>
+
+                    @if($ad->user && $ad->user->email)
+                        <a href="mailto:{{ $ad->user->email }}"
+                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                            Contact Seller
+                        </a>
+                    @endif
                 </div>
 
                 <div>

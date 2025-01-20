@@ -21,12 +21,24 @@ class AdvertisementController extends Controller
         $this->middleware('auth', ['except' => ['index', 'show', 'adsByCategory']]);
     }
 
-    public function index()
-    {
-        $ads = Advertisement::paginate(8);
+    public function index(Request $request)
+{
+    $query = Advertisement::query();
 
-        return view('advertisement.index', ['ads' => $ads, 'categories' => Category::all()]);
+    if ($request->has('search') && !empty($request->search)) {
+        $searchTerm = $request->search;
+        $query->whereHas('category', function ($q) use ($searchTerm) {
+            $q->where('title', 'like', '%' . $searchTerm . '%');
+        });
     }
+
+    $ads = $query->paginate(12);
+
+    return view('advertisement.index', [
+        'ads' => $ads,
+        'categories' => Category::all()
+    ]);
+}
 
     public function adsByCategory($id)
     {
