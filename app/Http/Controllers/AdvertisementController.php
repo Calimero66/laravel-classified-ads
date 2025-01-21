@@ -4,138 +4,162 @@ namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use App\Models\Advertisement;
 use App\Models\Category;
 
 class AdvertisementController extends Controller
 {
-    const FORM_VALIDATION_RULES = [
-        'description' => 'required|min:10|max:1000',
-        'price' => 'required|numeric|between:0,99999.99',
-        'image' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
-        'category_id' => 'required|exists:categories,id',
-    ];
-
     public function __construct()
     {
         $this->middleware('auth', ['except' => ['index', 'show', 'adsByCategory']]);
     }
 
+    /**
+     * Display a listing of advertisements.
+     */
     public function index(Request $request)
-{
-    $query = Advertisement::query();
-
-    if ($request->has('search') && !empty($request->search)) {
-        $searchTerm = $request->search;
-        $query->whereHas('category', function ($q) use ($searchTerm) {
-            $q->where('title', 'like', '%' . $searchTerm . '%');
-        });
-    }
-
-    $ads = $query->paginate(12);
-
-    return view('advertisement.index', [
-        'ads' => $ads,
-        'categories' => Category::all()
-    ]);
-}
-
-    public function adsByCategory($id)
     {
-        $category = Category::find($id);
+        $ads = Advertisement::with('category')
+            ->when($request->search, function ($query, $searchTerm) {
+                $query->whereHas('category', function ($q) use ($searchTerm) {
+                    $q->where('title', 'like', "%{$searchTerm}%");
+                });
+            })
+            ->paginate(12);
 
-        if (!$category) {
-            abort(404);
-        }
+        $categories = Category::all();
 
-        $ads = Advertisement::where('category_id', $category->id)->paginate(8);
-
-        return view('advertisement.index', ['ads' => $ads, 'categories' => Category::all(), 'category' => $category]);
+        return view('advertisement.index', compact('ads', 'categories'));
     }
 
+    /**
+     * Display advertisements by category.
+     */
+    public function adsByCategory(Category $category)
+    {
+        $ads = $category->advertisements()->paginate(8);
+        $categories = Category::all();
+
+        return view('advertisement.index', compact('ads', 'categories', 'category'));
+    }
+
+    /**
+     * Show the form for creating a new advertisement.
+     */
     public function create()
     {
-        return view('advertisement.create', ['categories' => Category::all()]);
+        $categories = Category::all();
+
+        return view('advertisement.create', compact('categories'));
     }
 
+    /**
+     * Store a newly created advertisement in storage.
+     */
     public function store(Request $request)
     {
-        $request->validate(self::FORM_VALIDATION_RULES);
+        $validated = $request->validate([
+            'description' => 'required|min:10|max:1000',
+            'price' => 'required|numeric|between:0,99999.99',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'category_id' => 'required|exists:categories,id',
+        ]);
 
-        $ad = Advertisement::create($request->all());
-        $ad->updateImage($request->image);
+        $ad = new Advertisement($validated);
+        $ad->user_id = Auth::id();
+        $ad->save();
 
-        return redirect(route('advertisement.show', [$ad->id]))
+        if ($request->hasFile('image')) {
+            $this->updateImage($ad, $request->file('image'));
+        }
+
+        return redirect()->route('advertisement.show', $ad)
             ->with('message_type', 'success')
-            ->with('message', 'You have successfully posted advertisement.');
+            ->with('message', 'You have successfully posted the advertisement.');
     }
 
-    public function show($id)
+    /**
+     * Display the specified advertisement.
+     */
+    public function show(Advertisement $advertisement)
     {
-        $ad = Advertisement::find($id);
-
-        if (!$ad) {
-            abort(404);
-        }
-        return view('advertisement.show', ['ad' => $ad]);
+        $ad = $advertisement;  // Rename to match view expectation
+        return view('advertisement.show', compact('ad'));
     }
 
-    public function edit($id)
+    /**
+     * Show the form for editing the specified advertisement.
+     */
+    public function edit(Advertisement $advertisement)
     {
-        $ad = Advertisement::find($id);
+        $ad = $advertisement;  // Rename to match view expectation
+        $categories = Category::all();
 
-        if (!$ad) {
-            abort(404);
-        }
-
-        if (Auth::id() !== $ad->user_id) {
-            abort(403);
-        }
-
-        return view('advertisement.edit', ['ad' => $ad, 'categories' => Category::all()]);
+        return view('advertisement.edit', compact('ad', 'categories'));
     }
 
-    public function update(Request $request, $id)
+    /**
+     * Update the specified advertisement in storage.
+     */
+    public function update(Request $request, Advertisement $advertisement)
     {
-        $ad = Advertisement::find($id);
+        $validated = $request->validate([
+            'description' => 'required|min:10|max:1000',
+            'price' => 'required|numeric|between:0,99999.99',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'category_id' => 'required|exists:categories,id',
+        ]);
 
-        if (Auth::id() !== $ad->user_id) {
-            abort(403);
+        $advertisement->update($validated);
+
+        if ($request->hasFile('image')) {
+            $this->updateImage($advertisement, $request->file('image'));
         }
 
-        $request->validate(self::FORM_VALIDATION_RULES);
-
-        $ad->update($request->all());
-        $ad->updateImage($request->image);
-
-        return redirect(route('advertisement.show', [$ad->id]))
+        return redirect()->route('advertisement.show', $advertisement)
             ->with('message_type', 'success')
-            ->with('message', 'You have successfully updated advertisement.');
+            ->with('message', 'You have successfully updated the advertisement.');
     }
 
-    public function destroy($id)
+    /**
+     * Remove the specified advertisement from storage.
+     */
+    public function destroy(Advertisement $advertisement)
     {
-        $ad = Advertisement::find($id);
-
-        if (!$ad) {
-            return redirect(route('advertisement.admin'));
+        if (!empty($advertisement->image_url) && File::exists(public_path($advertisement->image_url))) {
+            File::delete(public_path($advertisement->image_url));
         }
 
-        if (Auth::id() !== $ad->user_id) {
-            abort(403);
-        }
+        $advertisement->delete();
 
-        $ad->delete();
-
-        return redirect(route('advertisement.admin'))
+        return redirect()->route('advertisement.admin')
             ->with('message_type', 'success')
-            ->with('message', 'You have successfully deleted advertisement.');
+            ->with('message', 'You have successfully deleted the advertisement.');
     }
 
+    /**
+     * Display the user's advertisements (admin view).
+     */
     public function admin()
     {
         $ads = Advertisement::where('user_id', Auth::id())->get();
 
-        return view('advertisement.admin', ['ads' => $ads]);
+        return view('advertisement.admin', compact('ads'));
+    }
+
+    /**
+     * Update the image for the specified advertisement.
+     */
+    private function updateImage(Advertisement $ad, $image)
+    {
+        if (!empty($ad->image_url) && File::exists(public_path($ad->image_url))) {
+            File::delete(public_path($ad->image_url));
+        }
+
+        $imageName = $ad->id . '.' . $image->extension();
+        $image->move(public_path('images'), $imageName);
+        $ad->image_url = '/images/' . $imageName;
+        $ad->save();
     }
 }
