@@ -19,7 +19,7 @@ class CreateAdvertisementsTable extends Migration
             $table->text('description');
             $table->string('image_url', 200)->default('');
             $table->integer('user_id');
-            $table->foreignId('category_id')->constrained(); // foreign key for category_id
+            $table->foreignId('category_id')->constrained();
             $table->timestamps();
         });
     }
